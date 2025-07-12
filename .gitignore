@@ -1,0 +1,56 @@
+# Python environment & caches
+env/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.vs
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs & databases
+*.log
+*.sqlite3
+*.db
+
+# Editor/IDE config
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Project core files not under version control
+.gitignore
+.dockerignore
+
+# Docker-specific
+Dockerfile
+docker-compose.yml
+
+# Keep models folder, ignore its contents
+models/*
+# !models/.gitignore
+!models/.gitkeep
+
+# But ignore model files in app/models
+app/models/*.pt
+app/models/*.pth
+**/models/*.pt
+**/models/*.pth

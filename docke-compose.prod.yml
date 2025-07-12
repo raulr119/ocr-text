@@ -1,0 +1,31 @@
+# docker-compose.prod.yml - For production deployment
+
+version: "3.8"
+
+services:
+  fastapi-gpu-app:
+    # Use a pre-built image for production.
+    # You would build this image once (e.g., `docker build -t id-card-fastapi-prod .`)
+    # and then push it to a registry.
+    image: id-card-fastapi-prod:latest # Name your production image
+    container_name: fastapi-ocr-prod
+    ports:
+      - "8000:8000" # Map host port 8000 to container port 8000
+    # No volumes for application code in production, as code is baked into the image.
+    # No --reload flag for uvicorn in production.
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu] # Request GPU capabilities
+    runtime: nvidia # Specify NVIDIA runtime for GPU access
+    environment:
+      # Set environment variables for the application
+      - NVIDIA_VISIBLE_DEVICES=all # Expose all GPUs to the container
+      - LOG_LEVEL=INFO # Set logging level to INFO for production
+      - MODEL_DIR=/app/models # Ensure the app knows where to find models within the container
+      # You can also set specific model paths if needed, but typically in prod,
+      # models are copied into the image at build time.

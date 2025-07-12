@@ -1,0 +1,38 @@
+# docker-compose.dev.yml - For local development with live code reloading and model mounting
+
+version: '3.8'
+
+services:
+  fastapi-gpu-app:
+    # Build the image from the Dockerfile in the current context
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi-ocr-dev
+    ports:
+      - "8000:8000" # Map host port 8000 to container port 8000
+    volumes:
+      # Mount the entire current project directory into the container's /app.
+      # This enables live code reloading and allows models to be managed on the host.
+      - .:/app
+      # Ensure the models directory is explicitly mounted if it's outside the main app directory
+      # If your models are already inside the ./models folder within your project root,
+      # the above volume mount (.:/app) will cover it.
+      # If they are elsewhere, you might need an additional mount like:
+      # - ./path/to/your/models:/app/models
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu] # Request GPU capabilities
+    runtime: nvidia # Specify NVIDIA runtime for GPU access
+    environment:
+      # Set environment variables for the application
+      - NVIDIA_VISIBLE_DEVICES=all # Expose all GPUs to the container
+      - LOG_LEVEL=DEBUG # Set logging level to DEBUG for development
+      - MODEL_DIR=/app/models # Ensure the app knows where to find models within the container
+      # You can also set specific model paths if needed, e.g.:
+      # - CLASSIFICATION_MODEL_PATH=/app/models/my_custom_classifier.pth

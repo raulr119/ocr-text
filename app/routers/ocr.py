@@ -28,9 +28,10 @@ from app.services.utils import (
     decode_base64_image,
     validate_image_for_ocr,
     resize_image,
-    hash_image
+    hash_image,
+    normalize_fields
 )
-from app.schemas.ocr_result import OCRResult
+from app.schemas.ocr_result import OCRResult, OCRResultBody
 from app.schemas.base64_input import Base64ImageInput
 from app.config import settings
 
@@ -164,7 +165,24 @@ def process_ocr_pipeline(
             return OCRResult(status=False, message=f"Missing required ID Number for {classified_card_type}", body=None)
         
         logger.info(f"[{request_id}] Pipeline completed successfully")
-        return OCRResult(status=True, message=f"OCR successful for {classified_card_type}", body=extracted_fields)
+        normalized_fields  = normalize_fields(classified_card_type, extracted_fields)
+        card_type_name = classified_card_type.lower()
+        card_type_id = settings.CARD_TYPE_IDS.get(card_type_name, 0)  # fallback to 0 = unknown
+        return OCRResult(
+            status=True,
+            message=f"OCR successful for {classified_card_type}",
+            body=OCRResultBody(
+                card_type_id=card_type_id,
+                card_type=classified_card_type,
+                name=normalized_fields.get("name"),
+                id_number=normalized_fields.get("id_number"),
+                dob=normalized_fields.get("dob"),
+                address=normalized_fields.get("address"),
+                gender=normalized_fields.get("gender"),
+                expiry_date=normalized_fields.get("expiry_date"),
+                coname=normalized_fields.get("coname"),
+            )
+        )
 
     except Exception as e:
         logger.error(f"Pipeline error: {e}")

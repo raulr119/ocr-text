@@ -8,6 +8,8 @@ import logging
 from app.config import settings
 import warnings
 warnings.filterwarnings("ignore")
+import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,12 @@ class IDDetectionService:
         self.class_names: Dict[str, List[str]] = {}
         
         for card_type, path in self.model_paths.items():
+            if not path: # Skip if path is empty in settings
+                # logger.warning(f"No model path configured for card type '{card_type}'. Skipping.")
+                continue
             try:
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"Model file not found at: {path}")
                 model = YOLO(path)
                 self.models[card_type] = model
                 # logger.info(f"Loaded field detection model for '{card_type}' from {path}")

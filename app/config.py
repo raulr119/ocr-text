@@ -1,20 +1,37 @@
-# app/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Dict, Optional, Union, ClassVar
 import os
 import logging
 from pathlib import Path
 import sys
+import logging.handlers # Import for RotatingFileHandler
 
 from dotenv import load_dotenv
 load_dotenv()
 
+# --- Helper function to get the correct base path for bundled resources ---
+def get_resource_path(relative_path: str) -> str:
+    """
+    Get the absolute path to a resource, handling PyInstaller's temporary directory.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as a PyInstaller bundle
+        # sys._MEIPASS is the path to the temporary folder where the bundle is extracted.
+        base_path = sys._MEIPASS
+    else:
+        # Running as a normal Python script (during development)
+        # Assume the script is run from the project root (D:\ocr-text\)
+        base_path = os.getcwd()
+    
+    # Join the base path with the relative path to the resource
+    # For models, relative_path will be like "models/fine_tuned_rotation_model.pth"
+    return os.path.join(base_path, relative_path)
+
+
 class Settings(BaseSettings):
-    # This configuration tells Pydantic to load environment variables from a .env file
-    # and ignore any extra fields in the .env file that are not defined here.
     model_config = SettingsConfigDict(
-        env_file='.env', 
-        extra='ignore',
+        env_file='.env',
+        extra='allow',
         env_file_encoding = "utf-8",
         case_sensitive = True
     )
@@ -25,190 +42,166 @@ class Settings(BaseSettings):
     API_DESCRIPTION: str = "Classification → Segmentation → Field Detection → OCR Pipeline"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    
-    # CORS Settings
-    CORS_ORIGINS: str = "*"  # This will be processed in model_post_init
-    CORS_ORIGINS_LIST: List[str] = []  # Will be populated in model_post_init
-    
-    # Model Paths
-    MODEL_DIR: str = os.getenv("MODEL_DIR", "models")
-    
-    # Classification Model
-    CLASSIFICATION_MODEL_PATH: str = ""
-    CLASSIFICATION_CONFIDENCE_THRESHOLD: float = 0.8
-    
-    # Segmentation Model
-    SEGMENTATION_MODEL_PATH: str = ""
-    SEGMENTATION_CONFIDENCE_THRESHOLD: float = 0.6
-    SEGMENTATION_USE_MASK: bool = True
-    
-    # Field Detection Models - will be built in model_post_init
-    AADHAR_MODEL_PATH: str = ""
-    PAN_MODEL_PATH: str = ""
-    VOTER_MODEL_PATH: str = ""
-    DRIVING_MODEL_PATH: str = ""
-    FIELD_DETECTION_CONFIDENCE_THRESHOLD: float = 0.5
-    
-    # # OCR Settings
-    OCR_LANGUAGES: str = "en"  # This will be processed in model_post_init
-    OCR_USE_GPU: bool = False
-    OCR_PREPROCESS: bool = False
-    OCR_UPSCALE_FACTOR: int = 2
-    
-    # Logging Settings
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    LOG_FILE: str = ""  # Empty string means console only
-    
-    # Processed fields (will be populated in model_post_init)
-    OCR_LANGUAGES_LIST: List[str] = []
-    CORS_ORIGINS_LIST: List[str] = []
-    FIELD_DETECTION_MODELS: Dict[str, str] = {}
 
-    DEFAULT_CLASSIFICATION_CLASSES: List[str] = ["aadhar", "driving", "pan", "voter"]
-    DEFAULT_CLASSIFICATION_MODEL_BACKBONE: str = "resnet50"
+    # CORS Settings
+    CORS_ORIGINS: str = "*"
+    CORS_ORIGINS_LIST: List[str] = []
+
+    # Model Paths (These will now store the *absolute* paths after __init__)
+    # The values from .env or defaults will be relative, and then converted.
+    MODEL_DIR_RELATIVE: str = os.getenv("MODEL_DIR", "models") # Keep original for reference
+
+    CLASSIFICATION_MODEL_PATH_RELATIVE: str = os.getenv("CLASSIFICATION_MODEL_PATH", "models/fine_tuned_rotation_model.pth")
+    SEGMENTATION_MODEL_PATH_RELATIVE: str = os.getenv("SEGMENTATION_MODEL_PATH", "models/segmentation_model.pt")
     
-    FIELD_LABELS : ClassVar[Dict[str, List[str]]] = {
-    "aadhar": ["AADHAR_NUMBER", "DATE_OF_BIRTH", "GENDER", "NAME", "ADDRESS"]
+    FIELD_DETECTION_MODELS_RELATIVE: Dict[str, str] = {
+        "aadhar": os.getenv("AADHAR_MODEL_PATH", "models/best_aadhar_ocr_model.pt"),
+        "pan": os.getenv("PAN_MODEL_PATH", "models/pan_model.pt"),
+        "voter": os.getenv("VOTER_MODEL_PATH", "models/finetuned_obb_model_voter.pt"),
+        "driving": os.getenv("DRIVING_MODEL_PATH", "models/driving.pt"),
     }
 
-    def model_post_init(self, __context) -> None:
-        """Process string fields into lists/dicts after initialization"""
-        # # Set default paths if not provided
-        # if not self.CLASSIFICATION_MODEL_PATH:
-        #     self.CLASSIFICATION_MODEL_PATH = os.path.join(self.MODEL_DIR, "classification_model.pth")
-        
-        # if not self.SEGMENTATION_MODEL_PATH:
-        #     self.SEGMENTATION_MODEL_PATH = os.path.join(self.MODEL_DIR, "segmentation_model.pt")
-        
-        # if not self.AADHAR_MODEL_PATH:
-        #     self.AADHAR_MODEL_PATH = os.path.join(self.MODEL_DIR, "aadhar_model.pt")
-        
-        # if not self.PAN_MODEL_PATH:
-        #     self.PAN_MODEL_PATH = os.path.join(self.MODEL_DIR, "pan_model.pt")
-        
-        # if not self.VOTER_MODEL_PATH:
-        #     self.VOTER_MODEL_PATH = os.path.join(self.MODEL_DIR, "voter_model.pt")
-        
-        # if not self.DRIVING_MODEL_PATH:
-        #     self.DRIVING_MODEL_PATH = os.path.join(self.MODEL_DIR, "driving_model.pt")
-        
-        # Process OCR_LANGUAGES
-        # self.OCR_LANGUAGES_LIST = [lang.strip() for lang in self.OCR_LANGUAGES.split(",") if lang.strip()]
-        
-        # Process CORS_ORIGINS
-        if self.CORS_ORIGINS == "*":
-            self.CORS_ORIGINS_LIST = ["*"]
+    # These will be the actual absolute paths used by services
+    CLASSIFICATION_MODEL_PATH: str = ""
+    SEGMENTATION_MODEL_PATH: str = ""
+    FIELD_DETECTION_MODELS: Dict[str, str] = {}
+    PADDLEOCR_WHLS_PATH: str = ""
+
+    # ... (rest of your existing settings like CONFIDENCE_THRESHOLD, FIELD_LABELS, OCR_LANGUAGES, etc.) ...
+    CLASSIFICATION_CONFIDENCE_THRESHOLD: float = 0.8
+    DEFAULT_CLASSIFICATION_CLASSES: List[str] = ["aadhar", "pan", "voter", "driving"]
+    DEFAULT_CLASSIFICATION_MODEL_BACKBONE: str = "resnet50"
+
+    SEGMENTATION_USE_MASK: bool = True
+    SEGMENTATION_CONFIDENCE_THRESHOLD: float = 0.5
+
+    FIELD_DETECTION_CONFIDENCE_THRESHOLD: float = 0.5
+
+    FIELD_LABELS: Dict[str, List[str]] = {
+        "aadhar": ["AADHAR_NUMBER", "ADDRESS", "DATE_OF_BIRTH","GENDER", "NAME"]
+    }
+    FIELD_MAPPINGS: ClassVar[Dict[str, Dict[str, str]]] = {
+        "voter": {
+            "name": ["name", "Name", "NAME", "full_name", "voter_name"],
+            "id_number": ["id_number", "number", "voter_id", "epic_no"],
+            "dob": ["dob", "date_of_birth", "birth_date"]
+        },
+        "pan": {
+            "name": ["Name"],
+            "id_number": ["PAN Number"],
+            "dob":[ "DOB"],
+            "coname": ["Father Name"],
+        },
+        "aadhar": {
+            "name": ["NAME"],
+            "id_number": ["AADHAR_NUMBER"],
+            "address": ["ADDRESS"],
+            "dob": ["DATE_OF_BIRTH"],
+            "gender": ["GENDER"],
+        },
+        "driving": {
+            "name": ["Name"],
+            "id_number":  ["Number"],
+            "dob": ["dob"],
+            "coname": ["father_name"],
+            "expiry_date": ["expiry_date"],
+        }
+    }
+
+    OCR_LANGUAGES: str = "en"
+    OCR_USE_GPU: bool = False
+    OCR_MIN_CONFIDENCE_THRESHOLD: float = 0.5
+
+    CARD_TYPE_IDS: Dict[str, int] = {
+        "aadhar": 1,
+        "pan": 2,
+        "voter": 3,
+        "driving": 4
+    }
+
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+    LOG_FILE: str = os.getenv("LOG_FILE", "logs/api.log")
+
+    def model_post_init(self, handler=None) -> None:
+        # Process CORS_ORIGINS string into a list
+        if isinstance(self.CORS_ORIGINS, str):
+            self.CORS_ORIGINS_LIST = [origin.strip() for origin in self.CORS_ORIGINS.split(',') if origin.strip()]
         else:
-            self.CORS_ORIGINS_LIST = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
-        
-        # Build FIELD_DETECTION_MODELS
+            self.CORS_ORIGINS_LIST = ["*"]
+
+        # Convert relative model paths to absolute paths using the resource helper
+        self.CLASSIFICATION_MODEL_PATH = get_resource_path(self.CLASSIFICATION_MODEL_PATH_RELATIVE)
+        self.SEGMENTATION_MODEL_PATH = get_resource_path(self.SEGMENTATION_MODEL_PATH_RELATIVE)
+
         self.FIELD_DETECTION_MODELS = {
-            "aadhar": self.AADHAR_MODEL_PATH,
-            "pan": self.PAN_MODEL_PATH,
-            "voter": self.VOTER_MODEL_PATH,
-            "driving": self.DRIVING_MODEL_PATH,
+            card_type: get_resource_path(path)
+            for card_type, path in self.FIELD_DETECTION_MODELS_RELATIVE.items()
         }
 
-        # Ensure the base model directory exists
-        Path(self.MODEL_DIR).mkdir(parents=True, exist_ok=True)
-        
-        # Convert OCR_LANGUAGES to a list if it's a string
-        # if isinstance(self.OCR_LANGUAGES, str):
-        #     self.OCR_LANGUAGES = [lang.strip() for lang in self.OCR_LANGUAGES.split(',') if lang.strip()]
-    
-    # def validate_model_paths(self) -> bool:
-    #     """Validate that all model paths exist"""
-    #     paths_to_check = [
-    #         self.CLASSIFICATION_MODEL_PATH,
-    #         self.SEGMENTATION_MODEL_PATH,
-    #     ]
-    #     paths_to_check.extend(self.FIELD_DETECTION_MODELS.values())
-        
-    #     missing_paths = []
-    #     for path in paths_to_check:
-    #         if not os.path.exists(path):
-    #             missing_paths.append(path)
-        
-    #     if missing_paths:
-    #         logging.warning(f"Missing model files: {missing_paths}")
-    #         return False
-    #     return True
+        # Special handling for PaddleOCR's whl models if they are in a specific subfolder
+        # Assuming you copied them to 'models/paddleocr_whl'
+        self.PADDLEOCR_WHLS_PATH = get_resource_path(os.path.join(self.MODEL_DIR_RELATIVE, 'paddleocr_whl'))
+
 
     def validate_model_paths(self) -> bool:
-        """Checks if all configured model files exist."""
-        all_models_exist = True
-        # List of model paths that are required for the main application's local services
-        # Note: Paths for microservices (Paddle/Torch) are not validated here, as their models are internal to their services.
-        required_models = [
-            self.SEGMENTATION_MODEL_PATH,
-        ] + list(self.FIELD_DETECTION_MODELS.values()) # Field detection models are local
+        """Validate if all configured model paths exist."""
+        all_paths_exist = True
 
-        # Classification model is potentially local if not using microservice
-        # Keeping this check here for completeness, though it might be redundant with microservice setup.
-        if Path(self.CLASSIFICATION_MODEL_PATH).is_file():
-            # If a local classification model is expected, add it to required_models for validation
-            # This depends on whether ClassificationService relies on a local file or is purely via Torch microservice.
-            # Assuming ClassificationService still has a local model for its `classify_card` method.
-            required_models.append(self.CLASSIFICATION_MODEL_PATH)
-        else:
-            logging.warning(f"Classification model file not found: {self.CLASSIFICATION_MODEL_PATH}. "
-                            "Ensure it's present if ClassificationService uses a local model, or that "
-                            "the Torch microservice handles classification fully.")
+        # Classification model
+        if self.CLASSIFICATION_MODEL_PATH and not os.path.exists(self.CLASSIFICATION_MODEL_PATH):
+            logger.warning(f"Classification model not found: {self.CLASSIFICATION_MODEL_PATH}. Ensure it's present if ClassificationService uses a local model, or that the Torch microservice handles classification fully.")
+            all_paths_exist = False
 
+        # Segmentation model
+        if self.SEGMENTATION_MODEL_PATH and not os.path.exists(self.SEGMENTATION_MODEL_PATH):
+            logger.warning(f"Missing model file: {self.SEGMENTATION_MODEL_PATH}")
+            all_paths_exist = False
 
-        for path in required_models:
-            if not Path(path).is_file():
-                logging.warning(f"Missing model file: {path}")
-                all_models_exist = False
-        return all_models_exist
+        # Field detection models
+        for card_type, path in self.FIELD_DETECTION_MODELS.items():
+            if path and not os.path.exists(path):
+                logger.warning(f"Missing model file: {path}")
+                all_paths_exist = False
+        
+        # Check PaddleOCR whl models base path
+        if not os.path.exists(self.PADDLEOCR_WHLS_PATH):
+            logger.warning(f"PaddleOCR models base directory not found: {self.PADDLEOCR_WHLS_PATH}. Ensure 'paddleocr_whl' is in your 'models' folder.")
+            all_paths_exist = False
+
+        return all_paths_exist
+
 def setup_logging(settings: Settings):
-    """Configure logging based on settings"""
-    # Create formatter
-    # formatter = logging.Formatter(settings.LOG_FORMAT)
-    
-    # Configure root logger
-    root_logger = logging.getLogger()
-    # root_logger.setLevel(getattr(logging, settings.LOG_LEVEL))
-    
-    # Clear existing handlers
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    
-    #Set root logger level
-    log_level = getattr(logging, settings.LOG_LEVEL.upper(),logging.INFO)
-    root_logger.setLevel(log_level)
+    # Ensure logs directory exists
+    log_dir = os.path.dirname(settings.LOG_FILE)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
 
-    #Create formatter
-    formatter = logging.Formatter(settings.LOG_FORMAT)
+    # Configure basic logging for the root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(settings.LOG_LEVEL)
+
+    # Clear existing handlers to prevent duplicate logs
+    if root_logger.handlers:
+        for handler in root_logger.handlers:
+            root_logger.removeHandler(handler)
 
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     root_logger.addHandler(console_handler)
-    
-    # File handler (if LOG_FILE is specified)
-    if settings.LOG_FILE:
-        try:
-            # Create log directory if it doesn't exist
-            log_dir = os.path.dirname(settings.LOG_FILE)
-            if log_dir and not os.path.exists(log_dir):
-                os.makedirs(log_dir, exist_ok=True)
-            
-            file_handler = logging.FileHandler(settings.LOG_FILE)
-            file_handler.setFormatter(formatter)
-            file_handler.setLevel(log_level)
-            root_logger.addHandler(file_handler)
-            
-            logging.info(f"Logging to file: {settings.LOG_FILE}")
-        except Exception as e:
-            logging.error(f"Failed to create file handler: {e}")
-    
-    # Configure specific loggers with explicit levels
+
+    # File handler
+    file_handler = logging.handlers.RotatingFileHandler(
+        settings.LOG_FILE,
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5
+    )
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    root_logger.addHandler(file_handler)
+    # Add your custom app loggers
     app_loggers = [
         "app.main",
-        "app.routers.ocr", 
+        "app.routers.ocr",
         "app.services.paddleocr_service",
         "app.services.segmentation",
         "app.services.utils",
@@ -217,14 +210,12 @@ def setup_logging(settings: Settings):
         "app.config"
     ]
 
-    # Set our app loggers to the configured level
     for logger_name in app_loggers:
         logger = logging.getLogger(logger_name)
-        logger.setLevel(log_level)
-        # Don't propagate to avoid duplicate messages
+        logger.setLevel(settings.LOG_LEVEL)
         logger.propagate = True
 
-     # Set specific logger levels for noisy third-party libraries
+    # Set specific logger levels for noisy third-party libraries
     third_party_loggers = {
         "urllib3": logging.WARNING,
         "requests": logging.WARNING,
@@ -243,11 +234,11 @@ def setup_logging(settings: Settings):
         logger = logging.getLogger(logger_name)
         logger.setLevel(level)
         logger.propagate = True
-    
+
     # Test logging setup
     test_logger = logging.getLogger("app.config")
     test_logger.info("Logging configuration completed successfully")
-    
+
     return root_logger
 
 # Initialize settings
@@ -263,5 +254,3 @@ logger.info("Configuration loaded successfully")
 # Validate model paths (optional - log warnings but don't fail)
 if not settings.validate_model_paths():
     logger.warning("Some model files are missing. Ensure all model files are in place before running the service.")
-else:
-    logger.info("All model paths validated successfully")

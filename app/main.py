@@ -1,22 +1,28 @@
 # app/main.py
+
 import uvicorn
 import sys
+import os
+import logging
+import traceback # Import traceback for detailed error logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-from app.routers import ocr
-import logging
-import os
 
-# Import config first to set up logging
-from app.config import settings
+if getattr(sys, 'frozen', False):
+    # This allows 'app.config' and 'app.routers' to be imported correctly.
+    sys.path.insert(0, sys._MEIPASS)
+    
 
-# Now import other modules
+# --- IMPORTANT: All 'app' imports MUST come AFTER the sys.path modification ---
+from app.config import Settings, setup_logging
 from app.routers.ocr import router as ocr_router
 
-os.environ['FLAGS_log_level'] = os.getenv("PADDLE_LOG_LEVEL","2")
+os.environ['FLAGS_log_level'] = os.getenv("PADDLE_LOG_LEVEL", "2")
 
+settings = Settings()
+setup_logging(settings)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
@@ -25,39 +31,27 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up ID Card OCR API")
     try:
-        # Validate GPU if required
-        # if settings.OCR_USE_GPU:
-        #     import torch
-        #     if not torch.cuda.is_available():
-        #         logger.error("GPU is required but not available")
-        #         raise RuntimeError("GPU is required but not available")
-        #     logger.info(f"GPU available: {torch.cuda.get_device_name(0)}")
-        
         # Validate model paths
         if not settings.validate_model_paths():
             logger.warning("Some model files are missing, but continuing startup")
-        
+
         logger.info("Startup completed successfully")
         yield
-        
+
     except Exception as e:
         logger.error(f"Startup failed: {e}")
-        raise
-    finally:
-        # Shutdown
-        logger.info("Shutting down ID Card OCR API")
+        logger.error(traceback.format_exc()) # Log full traceback
+        raise RuntimeError(f"Application startup failed: {e}")
 
-# Create FastAPI app with lifespan
+
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
     description=settings.API_DESCRIPTION,
-    docs_url="/docs",
-    redoc_url="/redoc",
     lifespan=lifespan
 )
 
-# Enable CORS
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS_LIST,
@@ -66,17 +60,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include OCR router
-app.include_router(
-    ocr_router,
-    prefix="/ocr",
-    tags=["ocr"],
-)
+# Include API routers
+app.include_router(ocr_router, prefix="/ocr", tags=["ocr"])
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Global exception handler"""
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+async def generic_exception_handler(request, exc):
+    logger.error(f"Unhandled Exception: {exc}")
+    logger.error(traceback.format_exc()) # Log full traceback
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"}
@@ -98,13 +96,13 @@ async def read_root():
 async def health_check():
     """Health check endpoint"""
     logger.info("Health check endpoint accessed")
-    
+
     # Check GPU if required
     gpu_status = "not_required"
     if settings.OCR_USE_GPU:
         import torch
         gpu_status = "available" if torch.cuda.is_available() else "unavailable"
-    
+
     return {
         "status": "healthy",
         "service": "ID Card OCR API",
@@ -114,14 +112,26 @@ async def health_check():
     }
 
 if __name__ == "__main__":
-    logger.info(f"Starting Uvicorn server on {settings.HOST}:{settings.PORT}")
+    import argparse
+    parser = argparse.ArgumentParser(description="Run ID Card OCR API.")
+    parser.add_argument('--host', type=str, default=settings.HOST,
+                        help=f'Host address for the API (default: {settings.HOST}).')
+    parser.add_argument('--port', type=int, default=settings.PORT,
+                        help=f'Port number for the API (default: {settings.PORT}).')
+    args = parser.parse_args()
+
+    logger.info(f"Starting Uvicorn server on {args.host}:{args.port}") # Corrected args.HOST to args.host
+    print(f"✅ ID Card OCR API running at http://{args.host}:{args.port}")  # Early feedback for .exe
+
     try:
         uvicorn.run(
-            "app.main:app",
-            host=settings.HOST,
-            port=settings.PORT,
-            reload=False,  # Set to True for development
-            log_level=settings.LOG_LEVEL.lower()
+            "app.main:app", # This string path is correct for Uvicorn
+            host=args.host,
+            port=args.port,
+            reload=False, # Always False for bundled apps
+            log_level=settings.LOG_LEVEL.lower(),
+            access_log=True,
+            workers=4
         )
     except Exception as e:
         logger.error(f"Failed to start server: {e}")

@@ -8,6 +8,8 @@ import logging
 from app.config import settings
 import warnings
 warnings.filterwarnings("ignore")
+import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +17,15 @@ class SegmentationService:
     def __init__(self):
         """Initialize segmentation service using config settings"""
         self.model_path = settings.SEGMENTATION_MODEL_PATH
+        # logger.info(f"Segmentation model path from settings: {self.model_path}")
+
         self.use_mask = settings.SEGMENTATION_USE_MASK
         self.conf_threshold = settings.SEGMENTATION_CONFIDENCE_THRESHOLD
         
         try:
+            if not os.path.exists(self.model_path):
+                raise FileNotFoundError(f"Segmentation model file not found at: {self.model_path}")
+
             self.model = YOLO(self.model_path)
             # logger.info(f"L oaded segmentation model from {self.model_path}")
         except Exception as e:

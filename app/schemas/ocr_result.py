@@ -1,14 +1,23 @@
-# app/schemas/ocr_result.py
-
+from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Dict, Optional
+
+class OCRResultBody(BaseModel):
+    card_type_id: int
+    card_type: str
+    name: Optional[str] = None
+    id_number: Optional[str] = None
+    dob: Optional[str] = None
+    address: Optional[str] = None
+    gender: Optional[str] = None
+    expiry_date: Optional[str] = None
+    coname: Optional[str] = None
 
 class OCRResult(BaseModel):
     status: bool = Field(..., description="Whether OCR was successful")
     message: str = Field(..., description="Status message about the OCR result")
-    body: Optional[Dict[str, str]] = Field(
+    body: Optional[OCRResultBody] = Field(
         default=None,
-        description="Extracted text fields from the document"
+        description="Extracted structured fields from the document"
     )
 
     model_config = ConfigDict(
@@ -16,7 +25,14 @@ class OCRResult(BaseModel):
             "example": {
                 "status": True,
                 "message": "OCR extraction successful",
-                "body": { "field_name": "extracted_value" } # Example body structure
+                "body": {
+                    "card_type": "aadhar",
+                    "name": "John Doe",
+                    "id_number": "1234 5678 9012",
+                    "dob": "1990-01-01",
+                    "address": "123 Main St",
+                    "gender": "Male"
+                }
             }
         }
     )

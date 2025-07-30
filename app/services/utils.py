@@ -11,6 +11,7 @@ from typing import Dict, Optional
 import traceback
 import hashlib
 import warnings
+from app.config import settings
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,30 @@ async def read_imagefile(file: UploadFile) -> np.ndarray:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error while processing file"
         )
+    
+
+def normalize_key(key: str) -> str:
+    # Normalize key: lowercased, no spaces, underscores only
+    return re.sub(r'\s+', '_', key.strip().lower())
+
+def normalize_fields(card_type: str, raw_fields: Dict[str, str]) -> Dict[str, Optional[str]]:
+    # Preprocess raw keys
+    normalized_raw = {normalize_key(k): v for k, v in raw_fields.items()}
+    
+    mapping = settings.FIELD_MAPPINGS.get(card_type.lower(), {})
+    result = {}
+
+    for target_key, variants in mapping.items():
+        for variant in variants:
+            variant_key = normalize_key(variant)
+            if variant_key in normalized_raw:
+                result[target_key] = normalized_raw[variant_key]
+                break
+        else:
+            result[target_key] = None  # fallback
+
+    return result
+
 
 def hash_image(image: np.ndarray) -> str:
     if image is None:
@@ -344,50 +369,6 @@ def validate_main_id_field(fields: Dict[str, str], card_type: str) -> bool:
     except Exception as e:
         logger.error(f"Error validating main ID field: {e}")
         return True  # Don't block on errors
-# def validate_main_id_field(fields: Dict[str, str], card_type: str) -> bool:
-#     """
-#     Validates that a main identifier field (like PAN, Aadhaar, etc.) is present and correctly formatted.
-#     Uses regex for precise validation based on card type.
-#     """
-#     try:
-#         if not fields or not isinstance(fields, dict) or not card_type:
-#             return False
-
-#         card_type = card_type.lower()
-
-#         # Regex patterns for main IDs
-#         regex_patterns = {
-#             'pan': r'^[A-Z]{5}[0-9]{4}[A-Z]$',  # e.g., ABCDE1234F
-#             'aadhar': r'^\d{12}$',              # e.g., 123412341234
-#             'driving': r'^[A-Z]{2}\d{2}\s?\d{11}$',  # e.g., DL0420110149646 or DL04 20110149646
-#             'voter': r'^[A-Z]{3}\d{7}$'         # e.g., ABC1234567
-#         }
-
-#         if card_type not in regex_patterns:
-#             logger.warning(f"Unknown card type: {card_type}")
-#             return True  # Allow unknown card types
-
-#         pattern = re.compile(regex_patterns[card_type], re.IGNORECASE)
-
-#         for field_name, field_value in fields.items():
-#             try:
-#                 if not field_value or not isinstance(field_value, str):
-#                     continue
-
-#                 clean_value = re.sub(r'\s+', '', field_value.strip())  # Remove spaces
-#                 if pattern.match(clean_value):
-#                     return True
-
-#             except Exception as e:
-#                 logger.warning(f"Error validating field '{field_name}': {e}")
-#                 continue
-
-#         return False  # No valid match found
-
-#     except Exception as e:
-#         logger.error(f"Error validating main ID field for {card_type}: {e}")
-#         return True  # Fail-safe fallback: do not block the process
-
 
 def decode_base64_image(base64_data: str) -> np.ndarray:
     """

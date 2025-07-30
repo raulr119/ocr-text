@@ -15,6 +15,8 @@ import logging
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from app.config import settings
+import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ class ClassificationService:
         """Initialize classification service using config settings"""
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_path = settings.CLASSIFICATION_MODEL_PATH
+        # logger.info(f"Classification model path from settings: {self.model_path}")
         self.conf_threshold = settings.CLASSIFICATION_CONFIDENCE_THRESHOLD
         
         # Load model metadata
@@ -80,6 +83,8 @@ class ClassificationService:
     def _load_model_metadata(self):
         """Load model metadata from checkpoint"""
         try:
+            if not os.path.exists(self.model_path):
+                raise FileNotFoundError(f"Classification model file not found at: {self.model_path}")
             checkpoint = torch.load(self.model_path, map_location='cpu')
             self.num_classes = len(checkpoint.get('class_names', settings.DEFAULT_CLASSIFICATION_CLASSES))
             self.class_names = checkpoint.get('class_names', settings.DEFAULT_CLASSIFICATION_CLASSES)
@@ -90,6 +95,9 @@ class ClassificationService:
             self.num_classes = len(settings.DEFAULT_CLASSIFICATION_CLASSES)
             self.class_names = settings.DEFAULT_CLASSIFICATION_CLASSES
             self.model_name = settings.DEFAULT_CLASSIFICATION_MODEL_BACKBONE
+            if not os.path.exists(self.model_path):
+                raise RuntimeError(f"Classification model file not found at {self.model_path} and metadata could not be loaded.")
+
 
     def _initialize_model(self):
         """Initialize and load the model"""
@@ -102,6 +110,9 @@ class ClassificationService:
         )
         
         try:
+            if not os.path.exists(self.model_path):
+                raise FileNotFoundError(f"Classification model file not found at: {self.model_path}")
+
             checkpoint = torch.load(self.model_path, map_location=self.device)
             state_dict = checkpoint.get('model_state_dict', checkpoint)
             self.model.load_state_dict(state_dict, strict=True)

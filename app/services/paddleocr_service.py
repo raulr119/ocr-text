@@ -5,10 +5,12 @@ import numpy as np
 from typing import List, Tuple, Optional, Dict
 import logging
 from paddleocr import PaddleOCR
+from app.config import settings
 import paddle
 import os
 from dotenv import load_dotenv
 import re
+import sys
 
 load_dotenv()
 
@@ -17,6 +19,16 @@ logging.getLogger("ppocr").setLevel(logging.WARNING)
 
 class PaddleOCRService:
     def __init__(self):
+        _models_base_path = settings.PADDLEOCR_WHLS_PATH
+        # logger.info(f"PaddleOCR models root from settings: {_models_base_path}")
+
+        # Ensure the path exists, even if it's just for logging during development
+        if not os.path.exists(_models_base_path):
+            # logger.error(f"PaddleOCR models base path does not exist: {_models_base_path}. "
+            #                "This is critical for offline use. Please ensure models are copied.")
+            # Raise an error here to prevent proceeding with a broken setup
+            raise FileNotFoundError(f"PaddleOCR models base directory not found at {_models_base_path}")
+
         langs_cfg = os.getenv("OCR_LANGUAGES", "en")
 
         if isinstance(langs_cfg, str):
@@ -44,9 +56,28 @@ class PaddleOCRService:
             else:
                 paddle.set_device('cpu')
 
+            det_model_dir = os.path.join(_models_base_path, 'det', primary_lang , f'{primary_lang}_PP-OCRv3_det_infer')
+            rec_model_dir = os.path.join(_models_base_path, 'rec', primary_lang , f'{primary_lang}_PP-OCRv4_rec_infer')
+            cls_model_dir = os.path.join(_models_base_path, 'cls', f'ch_ppocr_mobile_v2.0_cls_infer') # Often fixed name
+
+            # Check if model directories exist before passing to PaddleOCR
+            if not os.path.exists(det_model_dir):
+                # logger.error(f"Detection model directory not found: {det_model_dir}")
+                raise FileNotFoundError(f"PaddleOCR detection model not found at {det_model_dir}")
+            if not os.path.exists(rec_model_dir):
+                # logger.error(f"Recognition model directory not found: {rec_model_dir}")
+                raise FileNotFoundError(f"PaddleOCR recognition model not found at {rec_model_dir}")
+            # Cls model is optional, but good to check if configured
+            if not os.path.exists(cls_model_dir):
+                 logger.warning(f"Classification model directory not found: {cls_model_dir}. PaddleOCR might still work without it.")
+
             self.reader = PaddleOCR(
-                lang=primary_lang,
+                det_model_dir=det_model_dir,
+                rec_model_dir=rec_model_dir,
+                cls_model_dir=cls_model_dir if os.path.exists(cls_model_dir) else None,
                 use_angle_cls=True,
+                lang=primary_lang,
+                use_gpu=self.use_gpu,
                 show_log=False
             )
             logger.info(f"Initialized PaddleOCR with language: {primary_lang}, GPU: {self.use_gpu}")
@@ -58,8 +89,12 @@ class PaddleOCRService:
                 self.langs = ['en']
                 paddle.set_device('cpu')
                 self.reader = PaddleOCR(
-                    lang='en',
+                    det_model_dir=det_model_dir,
+                    rec_model_dir=rec_model_dir,
+                    cls_model_dir=cls_model_dir if os.path.exists(cls_model_dir) else None,
                     use_angle_cls=True,
+                    lang='en',
+                    use_gpu=False,
                     show_log=False
                 )
                 logger.info("PaddleOCR initialized with English fallback")

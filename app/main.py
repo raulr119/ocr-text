@@ -5,9 +5,11 @@ import sys
 import os
 import logging
 import traceback # Import traceback for detailed error logging
+import multiprocessing
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 if getattr(sys, 'frozen', False):
@@ -48,8 +50,15 @@ app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
     description=settings.API_DESCRIPTION,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     lifespan=lifespan
 )
+
+static_dir = os.path.join(os.path.dirname(__file__), "fastapi", "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # CORS Middleware
 app.add_middleware(
@@ -112,6 +121,7 @@ async def health_check():
     }
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # Required for multiprocessing in frozen apps
     import argparse
     parser = argparse.ArgumentParser(description="Run ID Card OCR API.")
     parser.add_argument('--host', type=str, default=settings.HOST,

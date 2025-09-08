@@ -171,13 +171,17 @@ class Settings(BaseSettings):
         return all_paths_exist
 
 def setup_logging(settings: Settings):
+    root_logger = logging.getLogger()
+
+    # ✅ Prevent duplicate setup (crucial for Uvicorn + PyInstaller)
+    if any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+        return root_logger
     # Ensure logs directory exists
     log_dir = os.path.dirname(settings.LOG_FILE)
     if log_dir and not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
 
     # Configure basic logging for the root logger
-    root_logger = logging.getLogger()
     root_logger.setLevel(settings.LOG_LEVEL)
 
     # Clear existing handlers to prevent duplicate logs
